@@ -1,43 +1,47 @@
-#pragma once
 #include <WebServer.h>
 #include <LittleFS.h>
 #include "config.h"
 
-void updateVolume(int vol);
-void updateTone(int bass, int treble);
-void loadPlaylist();
-
-WebServer server(80);
-File uploadFile; 
-
+// Даем доступ к глобальным переменным из main.cpp
+extern WebServer server;
+extern File uploadFile;
+extern int currentVolume;
+extern int currentBass;
+extern int currentTreble;
 extern int currentStationIdx;
 extern bool changeStationFlag;
 extern String customUrl;
 
-// Функция отдачи index.html из памяти LittleFS
-void handleStaticFile() {
-    String path = server.uri();
-    if (path == "/") path = "/index.html";
-    if (LittleFS.exists(path)) {
-        File file = LittleFS.open(path, "r");
-        String contentType = "text/html";
-        server.streamFile(file, contentType);
-        file.close();
-        return;
-    }
-    server.send(404, "text/plain", "Not Found");
-}
+// Подключаем наши строки состояния
+extern String currentTrack;
+extern String currentStationName;
+
+// Прототипы функций
+void loadPlaylist();
+void handleStaticFile();
+void updateVolume(int vol);
+void updateTone(int bass, int treble);
 
 void initWebServer() {
-    // API получения статуса для ползунков
+    // API получения расширенного статуса для ползунков и метаданных браузера радио
     server.on("/getstatus", HTTP_GET, []() {
-        String json = "{\"vol\":" + String(currentVolume) + 
-                      ",\"bass\":" + String(currentBass) + 
-                      ",\"treble\":" + String(currentTreble) + "}";
+        String track = currentTrack;
+        String station = currentStationName;
+        track.replace("\"", "\\\"");
+        station.replace("\"", "\\\"");
+
+        String json = "{\n";
+        json += "  \"vol\":" + String(currentVolume) + ",\n";
+        json += "  \"bass\":" + String(currentBass) + ",\n";
+        json += "  \"treble\":" + String(currentTreble) + ",\n";
+        json += "  \"track\":\"" + track + "\",\n";
+        json += "  \"station\":\"" + station + "\"\n";
+        json += "}";
+        
         server.send(200, "application/json", json);
     });
 
-    // API отдачи текстового контента плейлиста в JS-парсер браузера
+    // API отдачи текстового контента плейлиста в JS-парсер вашего браузера радио (без изменений)
     server.on("/api/getplaylist", HTTP_GET, []() {
         if (LittleFS.exists("/stations.txt")) {
             File f = LittleFS.open("/stations.txt", "r");
@@ -46,6 +50,41 @@ void initWebServer() {
         } else {
             server.send(200, "text/plain", "");
         }
+    });
+
+    // ЭНДПОИНТ-КОНВЕРТЕР: Разделяет имя и ссылку знаком ТАБУЛЯЦИИ (\t) строго под line.split('\t') в НА
+    server.on("/api/ha_playlist", HTTP_GET, []() {
+        if (!LittleFS.exists("/stations.txt")) {
+            server.send(200, "text/plain", "");
+            return;
+        }
+
+        File f = LittleFS.open("/stations.txt", "r");
+        String output = "";
+
+        while (f.available()) {
+            String line = f.readStringUntil('\n');
+            line.replace("\r", "");
+            line.trim();
+
+            if (line.length() < 5 || line.startsWith("#")) continue;
+
+            if (line.endsWith(";")) {
+                line = line.substring(0, line.length() - 1);
+            }
+
+            int separatorIdx = line.indexOf(';');
+            if (separatorIdx > 0) {
+                String name = line.substring(0, separatorIdx);
+                String url = line.substring(separatorIdx + 1);
+                name.trim();
+                url.trim();
+
+                output += name + "\t" + url + "\n";
+            }
+        }
+        f.close();
+        server.send(200, "text/plain", output);
     });
 
     server.on("/api/vol", HTTP_GET, []() {
@@ -78,7 +117,7 @@ void initWebServer() {
         server.send(200, "text/plain", "OK");
     });
 
-    // Надежный прием больших файлов по сетевым пакетам (Исправлено)
+    // Прием файлов
     server.on("/api/upload", HTTP_POST, []() {
         server.send(200, "text/plain", "OK");
     }, []() {
@@ -90,7 +129,7 @@ void initWebServer() {
         } else if (upload.status == UPLOAD_FILE_END) {
             if (uploadFile) {
                 uploadFile.close();
-                Serial.println("[Файлы]: Большой плейлист успешно сохранен в LittleFS!");
+                Serial.println("[Файлы]: Большой плейлист успешно сохранен!");
                 loadPlaylist();
             }
         }

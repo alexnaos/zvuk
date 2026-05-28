@@ -19,6 +19,14 @@
     </style>
 </head>
 <body>
+    <!-- Виджет текущего трека и станции -->
+    <div class="card" style="margin-bottom: 20px; background: #1c1c24; border: 1px solid #2d2d3d; border-radius: 8px;">
+        <div class="card-body" style="text-align: center; padding: 20px;">
+            <h4 id="station-display" style="color: #0d6efd; margin: 0 0 8px 0; font-size: 1.15rem; font-weight: 600;">Загрузка радиостанции...</h4>
+            <div id="track-display" style="color: #ffffff; font-size: 1.35rem; font-weight: bold; word-wrap: break-word;">Ожидание аудиопотока...</div>
+        </div>
+    </div>
+
     <div style="max-width: 440px; margin: 0 auto;">
         <h2>ESP32 WEB RADIO</h2>
         
@@ -59,23 +67,50 @@
     </div>
 
     <script>
-        // Получение живого статуса и списка станций при старте страницы
-        async function initPage() {
+        // Функция постоянного обновления состояния (вызывается по таймеру)
+        async function updateStatus() {
             try {
                 let res = await fetch('/getstatus');
                 let data = await res.json();
-                document.getElementById('vol').value = data.vol;
-                document.getElementById('bass').value = data.bass;
-                document.getElementById('treble').value = data.treble;
-                document.getElementById('vOut').innerHTML = data.vol;
-                document.getElementById('bOut').innerHTML = data.bass;
-                document.getElementById('tOut').innerHTML = data.treble;
+                
+                // Обновляем ползунки звука только если пользователь их сейчас не крутит пальцем
+                if (document.activeElement !== document.getElementById('vol')) {
+                    document.getElementById('vol').value = data.vol;
+                    document.getElementById('vOut').innerHTML = data.vol;
+                }
+                if (document.activeElement !== document.getElementById('bass')) {
+                    document.getElementById('bass').value = data.bass;
+                    document.getElementById('bOut').innerHTML = data.bass;
+                }
+                if (document.activeElement !== document.getElementById('treble')) {
+                    document.getElementById('treble').value = data.treble;
+                    document.getElementById('tOut').innerHTML = data.treble;
+                }
 
-                // Запрашиваем текстовый плейлист с ESP32
+                // ОБНОВЛЕНИЕ ТРЕКА И СТАНЦИИ
+                if (data.station) {
+                    document.getElementById("station-display").innerText = data.station.trim() ? data.station : "Неизвестная станция";
+                }
+                if (data.track) {
+                    document.getElementById("track-display").innerText = data.track.trim() ? data.track : "Нет метаданных трека";
+                }
+            } catch(e) { console.log("Ошибка обновления статуса:", e); }
+        }
+
+        // Первоначальная загрузка страницы
+        async function initPage() {
+            // Сразу один раз запрашиваем статус ползунков и треков
+            await updateStatus();
+            
+            // Запускаем бесконечный цикл обновления статуса каждые 2 секунды
+            setInterval(updateStatus, 2000);
+
+            // Запрашиваем текстовый плейлист с ESP32 и строим кнопки (делается 1 раз при старте)
+            try {
                 let plRes = await fetch('/api/getplaylist');
                 let text = await plRes.text();
                 buildStationButtons(text);
-            } catch(e) { console.log(e); }
+            } catch(e) { console.log("Ошибка загрузки плейлиста:", e); }
         }
 
         // Правильный парсер строк "Имя;Ссылка"
@@ -92,7 +127,7 @@
                     if (parts.length >= 2) {
                         let btn = document.createElement('button');
                         btn.className = 'btn';
-                        btn.innerHTML = parts[0]; // ИСПРАВЛЕНО: Берём только имя станции!
+                        btn.innerHTML = parts[0]; 
                         let currentIdx = count;
                         btn.onclick = () => fetch('/api/set?id=' + currentIdx);
                         container.appendChild(btn);
@@ -142,6 +177,7 @@
             }
         }
 
+        // Запуск
         initPage();
     </script>
 </body>
