@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Web Radio</title>
+    <style>
+        body { background: #121214; color: #e1e1e6; font-family: sans-serif; text-align: center; padding: 20px; margin: 0; }
+        .card { background: #1d1d22; padding: 20px; border-radius: 16px; max-width: 440px; margin: 20px auto; box-shadow: 0 8px 24px rgba(0,0,0,0.2); border: 1px solid #29292e; }
+        .btn { display: block; width: 100%; padding: 12px; margin: 10px 0; background: #0d6efd; color: #fff; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; transition: 0.2s; text-decoration: none; box-sizing: border-box; text-align: center; }
+        .btn:hover { background: #0b5ed7; }
+        .btn-success { background: #198754; }
+        .btn-success:hover { background: #157347; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #bb2d3b; }
+        input[type=text], input[type=file] { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #29292e; background: #121214; color: #fff; box-sizing: border-box; }
+        input[type=range] { width: 100%; margin: 15px 0; accent-color: #0d6efd; }
+        .row-label { display: flex; justify-content: space-between; font-weight: bold; color: #a0a0b0; }
+    </style>
+</head>
+<body>
+    <div style="max-width: 440px; margin: 0 auto;">
+        <h2>ESP32 WEB RADIO</h2>
+        
+        <!-- Блок звука -->
+        <div class="card">
+            <h3>Настройки звука</h3>
+            <div class="row-label"><span>Громкость</span><span id="vOut">-</span></div>
+            <input type="range" id="vol" min="0" max="21" oninput="sendVol(this.value)">
+            
+            <div class="row-label"><span>Низкие частоты (Bass)</span><span id="bOut">-</span></div>
+            <input type="range" id="bass" min="0" max="15" oninput="sendTone()">
+            
+            <div class="row-label"><span>Высокие частоты (Treble)</span><span id="tOut">-</span></div>
+            <input type="range" id="treble" min="-8" max="7" oninput="sendTone()">
+        </div>
+
+        <!-- Блок динамического списка станций -->
+        <div class="card">
+            <h3>Список станций</h3>
+            <div id="stationsBlock"><p style="color:#6a6a77;">Загрузка станций...</p></div>
+        </div>
+
+        <!-- Блок кастомной ссылки -->
+        <div class="card">
+            <h3>Запуск по ссылке</h3>
+            <input type="text" id="streamUrl" placeholder="online-1.gkvr.ru:8000/256rusnn.mp3"><br><br>
+            <button class="btn btn-success" onclick="sendUrl()">ИГРАТЬ ПОТОК</button>
+        </div>
+
+        <!-- Блок загрузки файла плейлиста -->
+        <div class="card">
+            <h3>Обновление плейлиста</h3>
+            <form id="uploadForm">
+                <input type="file" id="fileInput" name="update" accept=".txt"><br><br>
+                <button type="button" class="btn btn-danger" onclick="uploadPlaylist()">ЗАГРУЗИТЬ STATIONS.TXT</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Получение живого статуса и списка станций при старте страницы
+        async function initPage() {
+            try {
+                let res = await fetch('/getstatus');
+                let data = await res.json();
+                document.getElementById('vol').value = data.vol;
+                document.getElementById('bass').value = data.bass;
+                document.getElementById('treble').value = data.treble;
+                document.getElementById('vOut').innerHTML = data.vol;
+                document.getElementById('bOut').innerHTML = data.bass;
+                document.getElementById('tOut').innerHTML = data.treble;
+
+                // Запрашиваем текстовый плейлист с ESP32
+                let plRes = await fetch('/api/getplaylist');
+                let text = await plRes.text();
+                buildStationButtons(text);
+            } catch(e) { console.log(e); }
+        }
+
+        // Правильный парсер строк "Имя;Ссылка"
+        function buildStationButtons(text) {
+            let container = document.getElementById('stationsBlock');
+            container.innerHTML = "";
+            let lines = text.split('\n');
+            let count = 0;
+
+            lines.forEach((line) => {
+                line = line.trim();
+                if (line.length > 5 && !line.startsWith('#')) {
+                    let parts = line.split(';');
+                    if (parts.length >= 2) {
+                        let btn = document.createElement('button');
+                        btn.className = 'btn';
+                        btn.innerHTML = parts[0]; // ИСПРАВЛЕНО: Берём только имя станции!
+                        let currentIdx = count;
+                        btn.onclick = () => fetch('/api/set?id=' + currentIdx);
+                        container.appendChild(btn);
+                        count++;
+                    }
+                }
+            });
+            if (count === 0) {
+                container.innerHTML = "<p style='color:#ffc107;'>Плейлист пуст. Выберите stations.txt ниже!</p>";
+            }
+        }
+
+        function sendVol(val) {
+            document.getElementById('vOut').innerHTML = val;
+            fetch('/api/vol?val=' + val);
+        }
+        
+        function sendTone() {
+            let b = document.getElementById('bass').value;
+            let t = document.getElementById('treble').value;
+            document.getElementById('bOut').innerHTML = b;
+            document.getElementById('tOut').innerHTML = t;
+            fetch(`/api/tone?bass=${b}&treble=${t}`);
+        }
+
+        function sendUrl() {
+            let url = encodeURIComponent(document.getElementById('streamUrl').value);
+            fetch('/api/custom?url=' + url);
+        }
+
+        // Асинхронная отправка файла без перезагрузки всей страницы
+        async function uploadPlaylist() {
+            let fileField = document.getElementById('fileInput');
+            if (fileField.files.length === 0) {
+                alert('Пожалуйста, выберите файл stations.txt');
+                return;
+            }
+            let formData = new FormData();
+            formData.append("update", fileField.files[0]);
+
+            let res = await fetch('/api/upload', { method: 'POST', body: formData });
+            if (res.ok) {
+                alert('Плейлист успешно загружен!');
+                initPage(); // Перестраиваем кнопки станций на лету
+            } else {
+                alert('Ошибка загрузки файла.');
+            }
+        }
+
+        initPage();
+    </script>
+</body>
+</html>
