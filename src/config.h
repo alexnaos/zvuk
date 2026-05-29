@@ -6,18 +6,19 @@
 const char* WIFI_SSID     = "Sloboda100";
 const char* WIFI_PASSWORD = "2716192023";
 
-// Наша проверенная аппаратная схема пинов (Шина HSPI)
-#define PIN_SPI_MISO 14
-#define PIN_SPI_MOSI 12
-#define PIN_SPI_SCK  13
+// Наша новая аппаратная схема пинов для Lolin S2 Mini
+#define PIN_SPI_SCK  7
+#define PIN_SPI_MISO 9
+#define PIN_SPI_MOSI 11
 
-#define VS1053_CS     27   // XCS
-#define VS1053_DCS     25   // XDCS
-#define VS1053_DREQ    4    // DREQ
-#define VS1053_RST     26   // XRESET
+#define VS1053_CS     12   // XCS
+#define VS1053_DCS    14   // XDCS
+#define VS1053_DREQ   13   // DREQ
+#define VS1053_RST    18   // XRESET
 
-#define I2C_SDA        21
-#define I2C_SCL        22
+#define I2C_SDA        33
+#define I2C_SCL        35
+
 
 // Структура для динамического списка станций
 struct Station {
