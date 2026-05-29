@@ -1,12 +1,17 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <LittleFS.h>
-#include <WebServer.h> // <-- Добавили для корректной работы объекта WebServer
+#include <WebServer.h> 
+#include <esp_task_wdt.h> // <-- ПОДКЛЮЧИЛИ АППАРАТНЫЙ WATCHDOG
 #include "config.h"
 #include "display_module.h"
 #include "audio_module.h"
 #include "web_server_module.h"
 #include "mqtt_module.h"
+
+// Таймер для неблокирующей проверки связи Wi-Fi
+unsigned long lastWiFiCheck = 0;
+const unsigned long wifiCheckInterval = 10000; // Проверяем сеть раз в 10 секунд
 
 // Указываем компилятору, что эта функция находится в другом файле (в модуле веб-сервера)
 extern void handleWebRequests(); 
@@ -14,8 +19,8 @@ extern void handleWebRequests();
 // Создаем глобальные сетевые объекты для MQTT и Веб-сервера
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
-WebServer server(80);  // <-- ФИЗИЧЕСКОЕ СОЗДАНИЕ СЕРВЕРА
-File uploadFile;       // <-- ФИЗИЧЕСКОЕ СОЗДАНИЕ ОБЪЕКТА ДЛЯ ЗАГРУЗКИ ФАЙЛОВ
+WebServer server(80);  
+File uploadFile;       
 
 // Переменные состояния плейлиста и звука
 Station stationList[MAX_STATIONS];
@@ -92,18 +97,32 @@ void loadPlaylist() {
 void setup() {
     Serial.begin(115200);
     
+    // Инициализируем Аппаратный Watchdog на 8 секунд (перезагрузит чип при зависании)
+    esp_task_wdt_init(8, true); 
+    esp_task_wdt_add(NULL); // Привязываем WDT к главному циклу loop()
+    
     initDisplay();
     initFileSystem();
     loadPlaylist();
     initAudio();
 
+    // НЕБЛОКИРУЮЩИЙ СТАРТ WI-FI (зашиваем автореконнект на уровне SDK)
+    WiFi.mode(WIFI_MODE_STA);
+    WiFi.setAutoReconnect(true); 
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    while (WiFi.status() != WL_CONNECTED) {
+    
+    Serial.print("[Сеть]: Подключение к Wi-Fi...");
+    unsigned long startAttempt = millis();
+    
+    // Ждем роутер не более 10 секунд. Если он не готов — идем дальше, реконнект будет в loop
+    while (WiFi.status() != WL_CONNECTED && millis() - startAttempt < 10000) {
         delay(500);
+        Serial.print(".");
+        esp_task_wdt_reset(); // Продлеваем WDT во время старта
     }
 
     initWebServer();
-    initMQTT(); // Инициализируем MQTT
+    initMQTT(); 
     
     if (stationCount > 0) {
         currentStationIdx = 0;
@@ -112,9 +131,26 @@ void setup() {
 }
 
 void loop() {
-    handleWebRequests();
-    loopAudio();
-    loopMQTT(); // Синхронный опрос MQTT в одном потоке с музыкой
+    // СБРОС СТОРОЖЕВОГО ТАЙМЕРА (если loop выполняется — плата жива и не зависла)
+    esp_task_wdt_reset();
+
+    // Неблокирующая проверка связи по таймеру раз в 10 секунд
+    if (millis() - lastWiFiCheck > wifiCheckInterval) {
+        lastWiFiCheck = millis();
+        if (WiFi.status() != WL_CONNECTED) {
+            Serial.println("[Сеть]: Связь потеряна! Инициирую мягкое переподключение...");
+            WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        }
+    }
+
+    // Крутим сетевые сервисы только тогда, когда Wi-Fi реально подключен
+    if (WiFi.status() == WL_CONNECTED) {
+        handleWebRequests();
+        loopMQTT(); 
+    }
+
+    // Аудиопоток должен кормиться ВСЕГДА, даже если временно отвалилась сеть
+    loopAudio(); 
 
     if (changeStationFlag) {
         changeStationFlag = false;
