@@ -1,25 +1,23 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <LittleFS.h>
-#include <WebServer.h> 
 #include <esp_task_wdt.h> // <-- ПОДКЛЮЧИЛИ АППАРАТНЫЙ WATCHDOG
 #include "config.h"
 #include "display_module.h"
 #include "audio_module.h"
-#include "web_server_module.h"
 #include "mqtt_module.h"
 
 // Таймер для неблокирующей проверки связи Wi-Fi
 unsigned long lastWiFiCheck = 0;
 const unsigned long wifiCheckInterval = 10000; // Проверяем сеть раз в 10 секунд
 
-// Указываем компилятору, что эта функция находится в другом файле (в модуле веб-сервера)
+// Указываем компилятору прототипы функций из модуля GyverSettings (веб-сервера)
 extern void handleWebRequests(); 
+extern void initWebServer();
 
 // Создаем глобальные сетевые объекты для MQTT и Веб-сервера
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
-WebServer server(80);  
 File uploadFile;       
 
 // Переменные состояния плейлиста и звука
@@ -31,24 +29,6 @@ String currentStationName = "No Station";
 int currentStationIdx = -1;
 bool changeStationFlag = false;
 String customUrl = "";
-
-// Функция для отдачи статических файлов (HTML/CSS/JS) из LittleFS браузеру
-void handleStaticFile() {
-    String path = server.uri();
-    if (path.endsWith("/")) path += "index.html";
-    
-    String contentType = "text/html";
-    if (path.endsWith(".css")) contentType = "text/css";
-    else if (path.endsWith(".js")) contentType = "application/javascript";
-    
-    if (LittleFS.exists(path)) {
-        File file = LittleFS.open(path, "r");
-        server.streamFile(file, contentType);
-        file.close();
-    } else {
-        server.send(404, "text/plain", "File Not Found в LittleFS");
-    }
-}
 
 void initFileSystem() {
     if (!LittleFS.begin(true)) {
