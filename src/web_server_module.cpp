@@ -59,22 +59,14 @@ String getStationsOptions() {
 }
 
 // Конструктор интерфейса строго по правилам sets::Builder (стр. 8, 23, 28, 31)
+
+// Конструктор интерфейса: Всё на одной главной странице (без вкладок)
 void buildInterface(sets::Builder& b) {
-    // Храним выбранную вкладку в статической переменной (стр. 28)
-    static uint8_t activeTab = 0;
-
-    // Переключатель вкладок в самом верху страницы (стр. 28)
-    if (b.Tabs("Управление;Эквалайзер;Станции", &activeTab)) {
-        b.reload(); // Перезагружаем интерфейс для отрисовки выбранной вкладки
-        return;
-    }
-
-    // Отрисовка виджетов в зависимости от выбранной вкладки
-        if (activeTab == 0) {
-        // === ВКЛАДКА 1: УПРАВЛЕНИЕ ===
+    
+    // === БЛОК 1: ТЕКУЩИЙ ПОТОК И КНОПКИ ===
+    {
         sets::Group g(b, "Текущий поток");
         
-        // Присваиваем ID лейблам, чтобы обновлять их (стр. 4 документации)
         b.Label(kk::txt_st, "Станция", currentStationName);
         b.Label(kk::txt_tr, "Трек", currentTrack);
         
@@ -82,7 +74,7 @@ void buildInterface(sets::Builder& b) {
             updateVolume(db[kk::vol].toInt());
         }
 
-        // Ряд кнопок управления
+        // Ряд кнопок управления плеером
         {
             sets::Buttons btns(b);
             
@@ -93,10 +85,9 @@ void buildInterface(sets::Builder& b) {
                     changeStationFlag = true;
                 }
             }
-            // Кнопка Старт/Плей
             if (b.Button("▶ Плей")) {
                 if (currentStationIdx >= 0 && currentStationIdx < stationCount) {
-                    changeStationFlag = true; // Запускаем текущую выбранную станцию
+                    changeStationFlag = true;
                 }
             }
             if (b.Button("⏹ Стоп")) {
@@ -113,32 +104,30 @@ void buildInterface(sets::Builder& b) {
             }
         }
     }
- 
-    else if (activeTab == 1) {
-        // === ВКЛАДКА 2: ЭКВАЛАЙЗЕР ===
+
+    // === БЛОК 2: ЭКВАЛАЙЗЕР (ПЕРЕНЕСЕН ВНИЗ) ===
+    {
         sets::Group g(b, "Настройки тембра");
         bool toneChanged = false;
         
-        // Слайдеры низких и высоких частот (стр. 7)
         if (b.Slider(kk::bass, "Усиление НЧ (Бас)", 0, 15, 1)) toneChanged = true;
         if (b.Slider(kk::treble, "Усиление ВЧ (Требл)", -8, 7, 1)) toneChanged = true;
 
         if (toneChanged) {
             updateTone(db[kk::bass].toInt(), db[kk::treble].toInt());
         }
-    } 
-    else if (activeTab == 2) {
-        // === ВКЛАДКА 3: НАСТРОЙКИ СТАНЦИЙ ===
+    }
+
+    // === БЛОК 3: НАСТРОЙКИ СТАНЦИЙ (ПЕРЕНЕСЕН В САМЫЙ НИЗ) ===
+    {
         sets::Group g(b, "Выбор источника");
         
-        // Выпадающий список станций из stations.txt (стр. 8)
         if (b.Select(kk::st_id, "Выбрать станцию", getStationsOptions())) {
             currentStationIdx = db[kk::st_id].toInt();
             customUrl = "";
             changeStationFlag = true;
         }
 
-        // Поле для ввода кастомного URL (стр. 6)
         if (b.Input(kk::c_url, "Кастомный URL")) {
             customUrl = db[kk::c_url].toString();
             if (customUrl.length() > 5) {
@@ -148,6 +137,9 @@ void buildInterface(sets::Builder& b) {
         }
     }
 }
+
+
+
 
 // Обработчик скачивания файлов для Home Assistant эндпоинта /api/ha_playlist (стр. 2)
 
